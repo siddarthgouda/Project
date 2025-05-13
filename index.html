@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Decentralized Cloud Storage</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: url('https://assets.entrepreneur.com/content/3x2/2000/1628833770-MyPost-2021-08-13T110753442.jpg?format=pjeg&auto=webp&crop=16:9&width=675&height=380') no-repeat center center fixed;
+      background-size: cover;
+      background-color: rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(3px);
+    }
+    .container {
+      max-width: 95%;
+      margin: 30px auto;
+      background-color: rgba(255, 255, 255, 0.95);
+      padding: 30px;
+      border-radius: 16px;
+      box-shadow: 0 0 20px rgba(0,0,0,0.1);
+    }
+    h1 {
+      text-align: center;
+      color: #333;
+    }
+    input[type="file"] {
+      padding: 10px;
+      border-radius: 8px;
+      background-color: #4CAF50;
+      color: white;
+      cursor: pointer;
+    }
+    #uploadBtn {
+      background-color: #007BFF;
+      border: none;
+      color: white;
+      padding: 10px 20px;
+      margin-top: 10px;
+      cursor: pointer;
+      border-radius: 6px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+    th, td {
+      padding: 12px;
+      border-bottom: 1px solid #ddd;
+      text-align: center;
+    }
+    th {
+      background-color: #007BFF;
+      color: white;
+    }
+    .cid-blocks {
+      font-size: 12px;
+      text-align: left;
+    }
+    .download-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    video, audio {
+      margin-top: 5px;
+      width: 120px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Decentralized Cloud Storage System</h1>
+    <input type="file" id="fileInput" multiple>
+    <button id="uploadBtn">Upload File(s)</button>
+    <table id="fileTable">
+      <thead>
+        <tr>
+          <th>File Name</th>
+          <th>Type</th>
+          <th>Size</th>
+          <th>Date</th>
+          <th>AES Hash</th>
+          <th>IPFS Block CIDs</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <script>
+    const fileInput = document.getElementById('fileInput');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const tableBody = document.querySelector('#fileTable tbody');
+
+    function generateFakeCID() {
+      const chars = 'abcdefghijklmnopqrstuvwxyz1234567890';
+      let cid = 'Qm';
+      for (let i = 0; i < 44; i++) {
+        cid += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return cid;
+    }
+
+    async function generateAESHash(file) {
+      const buffer = await file.arrayBuffer();
+      const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    uploadBtn.addEventListener('click', async () => {
+      const files = fileInput.files;
+      if (!files.length) return alert("Please select at least one file.");
+
+      for (const file of files) {
+        const fileName = file.name;
+        const fileType = file.type || 'Unknown';
+        const fileSize = (file.size / 1024).toFixed(2) + ' KB';
+        const uploadDate = new Date().toLocaleString();
+        const aesHash = await generateAESHash(file);
+
+        // Generate 11 fake IPFS CIDs
+        const ipfsCIDs = [];
+        for (let i = 0; i < 11; i++) {
+          ipfsCIDs.push(generateFakeCID());
+        }
+        const cidHTML = ipfsCIDs.map((cid, index) => `<div>Block ${index + 1}: ${cid}</div>`).join("");
+
+        // Generate preview for video or audio
+        let previewHTML = '';
+        if (fileType.startsWith('video')) {
+          previewHTML = `<video src="${URL.createObjectURL(file)}" controls></video>`;
+        } else if (fileType.startsWith('audio')) {
+          previewHTML = `<audio src="${URL.createObjectURL(file)}" controls></audio>`;
+        }
+
+        // Convert buffer for download
+        const arrayBuffer = await file.arrayBuffer();
+        const bufferJSON = JSON.stringify([...new Uint8Array(arrayBuffer)]);
+
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${fileName}<div>${previewHTML}</div></td>
+          <td>${fileType}</td>
+          <td>${fileSize}</td>
+          <td>${uploadDate}</td>
+          <td>${aesHash}</td>
+          <td class="cid-blocks">${cidHTML}</td>
+          <td class="download-buttons">
+            <button onclick='downloadFile("${fileName}", ${bufferJSON}, true)'>Download Encrypted</button>
+            <button onclick='downloadFile("${fileName}", ${bufferJSON}, false)'>Download Decrypted</button>
+          </td>
+        `;
+        tableBody.appendChild(row);
+      }
+
+      fileInput.value = ''; // Reset
+    });
+
+    function downloadFile(fileName, buffer, encrypted = true) {
+      const blob = new Blob([new Uint8Array(buffer)], { type: 'application/octet-stream' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = encrypted ? `Encrypted_${fileName}` : `Decrypted_${fileName}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+  </script>
+</body>
+</html>
+
+
+
+
+
+
+from flask import Flask, render_template, request, redirect, send_file
+from pymongo import MongoClient
+from werkzeug.utils import secure_filename
+from Crypto.Cipher import AES
+from Crypto.Random import get_random_bytes
+from bson.objectid import ObjectId
+import base64, os, io, datetime
+import hashlib
+import random
+
+app = Flask(__name__)
+app.config['UPLOAD_FOLDER'] = 'uploads'
+client = MongoClient("mongodb://localhost:27017/")
+db = client["cloud_storage"]
+collection = db["files"]
+
+if not os.path.exists(app.config['UPLOAD_FOLDER']):
+    os.makedirs(app.config['UPLOAD_FOLDER'])
+
+# AES encryption
+def encrypt_file(file_data):
+    key = get_random_bytes(16)
+    cipher = AES.new(key, AES.MODE_EAX)
+    ciphertext, tag = cipher.encrypt_and_digest(file_data)
+    encrypted_data = cipher.nonce + tag + ciphertext
+    return encrypted_data, key.hex()
+
+def decrypt_file(encrypted_data, hex_key):
+    key = bytes.fromhex(hex_key)
+    nonce = encrypted_data[:16]
+    tag = encrypted_data[16:32]
+    ciphertext = encrypted_data[32:]
+    cipher = AES.new(key, AES.MODE_EAX, nonce=nonce)
+    decrypted_data = cipher.decrypt_and_verify(ciphertext, tag)
+    return decrypted_data
+
+def generate_ipfs_blocks(file_data):
+    blocks = []
+    for i in range(11):
+        block_hash = hashlib.sha256(file_data + str(i).encode()).hexdigest()
+        blocks.append("CID-" + block_hash[:16])
+    return blocks
+
+@app.route('/')
+def index():
+    files = list(collection.find())
+    return render_template('dashboard.html', files=files)
+
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    if 'file' not in request.files:
+        return redirect('/')
+    file = request.files['file']
+    if file.filename == '':
+        return redirect('/')
+    if file:
+        filename = secure_filename(file.filename)
+        file_data = file.read()
+        encrypted_data, aes_hash = encrypt_file(file_data)
+        ipfs_blocks = generate_ipfs_blocks(file_data)
+        save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename + ".enc")
+        with open(save_path, 'wb') as f:
+            f.write(encrypted_data)
+        collection.insert_one({
+            "filename": filename,
+            "type": file.content_type,
+            "size": round(len(file_data)/1024, 2),
+            "upload_time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "aes_hash": aes_hash,
+            "ipfs_blocks": ipfs_blocks,
+            "file_path": save_path
+        })
+    return redirect('/')
+
+@app.route('/download/encrypted/<file_id>')
+def download_encrypted(file_id):
+    file_record = collection.find_one({"_id": ObjectId(file_id)})
+    if file_record:
+        return send_file(file_record['file_path'], as_attachment=True, download_name="Encrypted_"+file_record['filename']+".enc")
+    return redirect('/')
+
+@app.route('/download/decrypted/<file_id>')
+def download_decrypted(file_id):
+    file_record = collection.find_one({"_id": ObjectId(file_id)})
+    if file_record:
+        with open(file_record['file_path'], 'rb') as f:
+            encrypted_data = f.read()
+        decrypted_data = decrypt_file(encrypted_data, file_record['aes_hash'])
+        return send_file(
+            io.BytesIO(decrypted_data),
+            as_attachment=True,
+            download_name="Decrypted_" + file_record['filename']
+        )
+    return redirect('/')
+
+@app.route('/delete/<file_id>')
+def delete_file(file_id):
+    file_record = collection.find_one({"_id": ObjectId(file_id)})
+    if file_record:
+        if os.path.exists(file_record['file_path']):
+            os.remove(file_record['file_path'])
+        collection.delete_one({"_id": ObjectId(file_id)})
+    return redirect('/')
+
+if __name__ == '__main__':
+    app.run(debug=True)
+
+
+

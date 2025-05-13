@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Decrypt File</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f4f4f4;
+      padding: 50px;
+      text-align: center;
+    }
+    input[type="file"], input[type="text"] {
+      padding: 10px;
+      margin: 10px;
+      width: 400px;
+    }
+    button {
+      padding: 10px 20px;
+      margin: 10px;
+      background-color: #28a745;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    #message {
+      margin-top: 20px;
+      color: red;
+    }
+  </style>
+</head>
+<body>
+  <h1>🔓 Decrypt Encrypted File</h1>
+  <input type="file" id="encryptedFileInput"><br>
+  <input type="text" id="aesKeyInput" placeholder="Paste AES Key (base64) here"><br>
+  <button onclick="handleDecrypt()">Decrypt & Download</button>
+  <div id="message"></div>
+
+  <script>
+    async function handleDecrypt() {
+      const fileInput = document.getElementById("encryptedFileInput");
+      const keyBase64 = document.getElementById("aesKeyInput").value.trim();
+      const message = document.getElementById("message");
+      message.textContent = "";
+
+      if (!fileInput.files.length || !keyBase64) {
+        message.textContent = "Please select a file and enter the AES key.";
+        return;
+      }
+
+      try {
+        const file = fileInput.files[0];
+        const encryptedFile = await file.arrayBuffer();
+        const iv = new Uint8Array(encryptedFile.slice(0, 12));
+        const encryptedData = encryptedFile.slice(12);
+
+        const keyBuffer = Uint8Array.from(atob(keyBase64), c => c.charCodeAt(0));
+        const key = await crypto.subtle.importKey("raw", keyBuffer, "AES-GCM", false, ["decrypt"]);
+
+        const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, encryptedData);
+        const blob = new Blob([decrypted]);
+
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = "Decrypted_File";
+        a.click();
+      } catch (error) {
+        console.error(error);
+        message.textContent = "Decryption failed. Check the key and try again.";
+      }
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Decentralized Cloud Storage</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: url('https://assets.entrepreneur.com/content/3x2/2000/1628833770-MyPost-2021-08-13T110753442.jpg?format=pjeg&auto=webp&crop=16:9&width=675&height=380') no-repeat center center fixed;
+      background-size: cover;
+      background-color: rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(3px);
+    }
+    .container {
+      max-width: 95%;
+      margin: 30px auto;
+      background-color: rgba(255, 255, 255, 0.95);
+      padding: 30px;
+      border-radius: 16px;
+      box-shadow: 0 0 20px rgba(0,0,0,0.1);
+    }
+    h1 {
+      text-align: center;
+      color: #333;
+    }
+    input[type="file"] {
+      padding: 10px;
+      border-radius: 8px;
+      background-color: #4CAF50;
+      color: white;
+      cursor: pointer;
+    }
+    #uploadBtn {
+      background-color: #007BFF;
+      border: none;
+      color: white;
+      padding: 10px 20px;
+      margin-top: 10px;
+      cursor: pointer;
+      border-radius: 6px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+    th, td {
+      padding: 12px;
+      border-bottom: 1px solid #ddd;
+      text-align: center;
+    }
+    th {
+      background-color: #007BFF;
+      color: white;
+    }
+    .cid-blocks {
+      font-size: 12px;
+      text-align: left;
+    }
+    .download-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Decentralized Cloud Storage System</h1>
+    <input type="file" id="fileInput" multiple>
+    <button id="uploadBtn">Upload File(s)</button>
+    <table id="fileTable">
+      <thead>
+        <tr>
+          <th>File Name</th>
+          <th>Type</th>
+          <th>Size</th>
+          <th>Date</th>
+          <th>AES Hash</th>
+          <th>IPFS Block CIDs</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <script>
+    const fileInput = document.getElementById('fileInput');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const tableBody = document.querySelector('#fileTable tbody');
+
+    const fileKeys = {}; // Store encryption key + IV per file
+
+    function generateFakeCID() {
+      const chars = 'abcdefghijklmnopqrstuvwxyz1234567890';
+      let cid = 'Qm';
+      for (let i = 0; i < 44; i++) {
+        cid += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return cid;
+    }
+
+    async function generateAESHash(file) {
+      const buffer = await file.arrayBuffer();
+      const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    async function encryptFile(buffer) {
+      const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, buffer);
+      return { encrypted, key, iv };
+    }
+
+    async function decryptFile(encrypted, key, iv) {
+      return await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, encrypted);
+    }
+
+    uploadBtn.addEventListener('click', async () => {
+      const files = fileInput.files;
+      if (!files.length) return alert("Please select at least one file.");
+
+      for (const file of files) {
+        const buffer = await file.arrayBuffer();
+        const { encrypted, key, iv } = await encryptFile(buffer);
+        const aesHash = await generateAESHash(file);
+
+        const keyID = aesHash;
+        fileKeys[keyID] = { encrypted, key, iv, name: file.name, type: file.type };
+
+        const fileSize = (file.size / 1024).toFixed(2) + ' KB';
+        const uploadDate = new Date().toLocaleString();
+
+        const ipfsCIDs = Array.from({ length: 11 }, (_, i) => `<div>Block ${i + 1}: ${generateFakeCID()}</div>`).join("");
+
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${file.name}</td>
+          <td>${file.type}</td>
+          <td>${fileSize}</td>
+          <td>${uploadDate}</td>
+          <td>${aesHash}</td>
+          <td class="cid-blocks">${ipfsCIDs}</td>
+          <td class="download-buttons">
+            <button onclick="downloadEncrypted('${aesHash}')">Download Encrypted</button>
+            <button onclick="downloadDecrypted('${aesHash}')">Download Decrypted</button>
+          </td>
+        `;
+        tableBody.appendChild(row);
+      }
+
+      fileInput.value = '';
+    });
+
+    // Download Encrypted File
+    window.downloadEncrypted = async (hash) => {
+      const { encrypted, name, key, iv } = fileKeys[hash];
+      const keyBuffer = await crypto.subtle.exportKey("raw", key);
+      const keyBase64 = btoa(String.fromCharCode(...new Uint8Array(keyBuffer)));
+      const blob = new Blob([iv, new Uint8Array(encrypted)], { type: 'application/octet-stream' });
+
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `Encrypted_${name}`;
+      a.click();
+
+      alert(`🔐 AES Key (base64):\n${keyBase64}\n\nCopy this to use it in decryption.`);
+    };
+
+    // Download Decrypted File (fixed to use original type)
+    window.downloadDecrypted = async (hash) => {
+      const { encrypted, key, iv, name, type } = fileKeys[hash];
+
+      try {
+        const decryptedBuffer = await decryptFile(encrypted, key, iv);
+
+        const blob = new Blob([decryptedBuffer], { type });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `Decrypted_${name}`;
+        a.click();
+      } catch (err) {
+        alert("❌ Decryption failed. Possibly due to an incorrect key or corrupted file.");
+        console.error(err);
+      }
+    };
+  </script>
+</body>
+</html>
